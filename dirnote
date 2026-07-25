@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+
+NOTE_FILE=".dirnote"
+SHARED_NOTE_FILE=".dirnote.shared"
+
+ensure_gitignore() {
+    if [[ -d .git ]]; then
+        if ! grep -q "^.dirnote$" .gitignore 2>/dev/null; then
+            echo ".dirnote" >> .gitignore
+        fi
+    fi
+}
+
+print_note() {
+    local found=0
+    for f in "$SHARED_NOTE_FILE" "$NOTE_FILE"; do
+        if [[ -f "$f" ]]; then
+            [[ $found -eq 0 ]] && echo "-----------"
+            cat "$f"
+            found=1
+        fi
+    done
+    [[ $found -eq 1 ]] && echo "-----------"
+    [[ $found -eq 1 ]] && return 0 || return 1
+}
+
+write_note() {
+    local force="$1"
+    shift
+    local msg="$*"
+    [[ -z "$msg" ]] && { echo "No message provided"; exit 1; }
+    if [[ -f "$NOTE_FILE" && "$force" != "force" ]]; then
+        echo "Note exists. Use -a to append or -f to overwrite."
+        exit 1
+    fi
+    echo "$msg" > "$NOTE_FILE"
+    ensure_gitignore
+    echo "📝 Note written"
+}
+
+append_note() {
+    local msg="$*"
+    [[ -z "$msg" ]] && { echo "No message provided"; exit 1; }
+    echo "[$(date '+%Y-%m-%dT%H:%M:%S')] $msg" >> "$NOTE_FILE"
+    ensure_gitignore
+    echo "📝 Appended to note"
+}
+
+delete_note() {
+    rm -f "$NOTE_FILE"
+    echo "🗑️ Personal note deleted"
+}
+
+edit_note() {
+    local editor="${EDITOR:-}"
+    if [[ -z "$editor" && -f "$HOME/.selected_editor" ]]; then
+        editor=$(. "$HOME/.selected_editor"; echo "$SELECTED_EDITOR")
+    fi
+    editor="${editor:-nano}"
+    "$editor" "$NOTE_FILE"
+    ensure_gitignore
+}
+
+delete_shared_note() {
+    if [[ -f "$SHARED_NOTE_FILE" ]]; then
+        read -p "Delete shared note? [y/N]: " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] && rm -f "$SHARED_NOTE_FILE"
+    fi
+}
+
+delete_all_notes() {
+    read -p "Delete ALL notes (personal + shared)? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] && rm -f "$NOTE_FILE" "$SHARED_NOTE_FILE"
+}
+
+list_notes() {
+    local depth="${1:-3}"
+    find . -maxdepth "$depth" -type f \( -name "$NOTE_FILE" -o -name "$SHARED_NOTE_FILE" \) \
+        -not -path "*/.git/*" | while read -r file; do
+            echo "$file"
+            echo "-----------"
+            cat "$file"
+            echo "-----------"
+            echo ""
+        done
+}
+
+nearest_note() {
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        for f in "$dir/$SHARED_NOTE_FILE" "$dir/$NOTE_FILE"; do
+            if [[ -f "$f" ]]; then
+                echo "From $dir:"
+                echo "-----------"
+                cat "$f"
+                echo "-----------"
+                return 0
+            fi
+        done
+        dir=$(dirname "$dir")
+    done
+    echo "No note found in current or parent directories"
+    return 1
+}
+
+usage() {
+    cat <<EOF
+dirnote - lightweight directory notes
+
+Usage:
+  dirnote                Read note (if exists)
+  dirnote -w "msg"       Write note (fails if exists)
+  dirnote -f "msg"       Force overwrite note
+  dirnote -a "msg"       Append with timestamp
+  dirnote -r             Read note
+  dirnote -d             Delete personal note
+  dirnote -e             Edit personal note in \$EDITOR
+  dirnote -ds            Delete shared note
+  dirnote -D             Delete ALL notes
+  dirnote -l [depth]     List notes (default depth=3)
+  dirnote -n             Show nearest parent note
+
+Notes:
+  .dirnote         = personal (auto gitignored)
+  .dirnote.shared  = team/shared
+EOF
+}
+
+case "$1" in
+    -w|--write)
+        shift
+        write_note normal "$@"
+        ;;
+    -f|--force)
+        shift
+        write_note force "$@"
+        ;;
+    -a|--append)
+        shift
+        append_note "$@"
+        ;;
+    -r|--read)
+        if ! print_note; then
+            echo "No note in this directory"
+            exit 1
+        fi
+        ;;
+    -d)
+        delete_note
+        ;;
+    -e|--edit)
+        edit_note
+        ;;
+    -ds)
+        delete_shared_note
+        ;;
+    -D)
+        delete_all_notes
+        ;;
+    -l|--list)
+        shift
+        list_notes "$1"
+        ;;
+    -n|--nearest)
+        nearest_note
+        ;;
+    "")
+        if ! print_note; then
+            usage
+            exit 1
+        fi
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

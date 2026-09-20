@@ -9,7 +9,7 @@ dirnote tells you why you're here.
 
 Ever wandered into a directory and thought:
 
-"Why does this exist?"
+"Why did I do that?"
 
 dirnote leaves small notes attached to directories.
 
